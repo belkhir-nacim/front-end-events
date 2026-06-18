@@ -9,9 +9,26 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@ai-sdk/langchain": "^2.0.216",
+    "@ai-sdk/react": "^3.0.210",
+    "@langchain/core": "^1.2.0",
+    "@langchain/langgraph": "^1.4.4",
+    "@langchain/openai": "^1.5.0",
+    "@supabase/ssr": "^0.12.0",
+    "@supabase/supabase-js": "^2.108.2",
+    "@vis.gl/react-google-maps": "^1.8.3",
+    "ai": "^6.0.208",
+    "geist": "^1.7.2",
+    "langchain": "^1.4.6",
+    "lucide-react": "^1.21.0",
+    "mammoth": "^1.12.0",
     "next": "16.2.9",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "recharts": "^3.8.1",
+    "unpdf": "^1.6.2",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

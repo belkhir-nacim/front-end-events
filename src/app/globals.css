@@ -1,26 +1,99 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* ============================================================
+   Serenia — "Climate Almanac, instrument-grade" design tokens
+   Color = data: rain → blues, heat → amber/vermilion.
+   ============================================================ */
+@theme {
+  /* surfaces */
+  --color-paper: #f1f3f0; /* soft neutral off-white */
+  --color-surface: #f8f9f7; /* raised surfaces */
+  --color-surface-2: #ffffff;
+  --color-ink: #14211d; /* deep teal-charcoal, primary text */
+  --color-subtle: #5c6c66; /* secondary text */
+  --color-line: #d7ddda; /* hairlines */
+  --color-line-strong: #c2ccc7;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  /* brand — restrained teal for interactive chrome */
+  --color-brand: #0e6b63;
+  --color-brand-ink: #0a4f49;
+
+  /* data ramp — rain (cool) */
+  --color-rain: #1f6fb2;
+  --color-rain-soft: #6aa9d8;
+  --color-rain-deep: #123b66;
+
+  /* data ramp — heat (warm) */
+  --color-heat: #e0853a;
+  --color-heat-soft: #f0b27a;
+  --color-heat-hot: #cc2e3c;
+
+  /* comfort / low-risk */
+  --color-cool: #2fa39a;
+  --color-good: #2f9e6f;
+
+  /* fonts — Geist family (wired in layout.tsx via the `geist` package) */
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-geist-sans);
+  --font-pixel: var(--font-geist-pixel-square);
+
+  /* radii + shadow */
+  --radius-card: 14px;
+  --shadow-card: 0 1px 2px rgba(20, 33, 29, 0.04), 0 8px 24px -12px rgba(20, 33, 29, 0.12);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Faint weather-map grid for hero/section backdrops */
+.grid-field {
+  background-image:
+    linear-gradient(to right, rgba(20, 33, 29, 0.028) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(20, 33, 29, 0.028) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* Display + data type helpers */
+.font-display {
+  font-family: var(--font-display), var(--font-sans), sans-serif;
+  letter-spacing: -0.02em;
+}
+.tnum {
+  font-family: var(--font-mono), monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.eyebrow {
+  font-family: var(--font-pixel), var(--font-mono), monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.74rem;
+}
+.font-pixel {
+  font-family: var(--font-pixel), var(--font-mono), monospace;
+}
+
+/* Quality floor */
+:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

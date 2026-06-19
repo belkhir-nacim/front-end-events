@@ -1,11 +1,6 @@
 import { MessageSquare, ShieldCheck } from "lucide-react";
 import type { HeatRisk, RainRisk } from "@/lib/types";
-
-type Tone = "rain" | "heat" | "good";
-interface Tip {
-  tone: Tone;
-  text: string;
-}
+import { type Segment, type Tone, segmentLabel, segmentTips } from "@/lib/segments";
 
 const DOT: Record<Tone, string> = {
   rain: "var(--color-rain)",
@@ -13,49 +8,30 @@ const DOT: Record<Tone, string> = {
   good: "var(--color-good)",
 };
 
-function tips(rain: RainRisk | null, heat: HeatRisk | null): Tip[] {
-  const out: Tip[] = [];
-  const heavy = rain?.prob_heavy_rain_day ?? 0;
-  const wet = rain?.expected_rainy_days ?? 0;
-  if (heavy >= 0.33 || wet >= 10) {
-    out.push({ tone: "rain", text: "High washout exposure — secure covered space or a marquee, and hold a rain date." });
-  } else if (heavy >= 0.15 || wet >= 5) {
-    out.push({ tone: "rain", text: "Some rain exposure — keep a wet-weather plan (cover, solid flooring) ready." });
-  } else {
-    out.push({ tone: "good", text: "Low rain risk — open-air should hold up in most years." });
-  }
-
-  const over35 = heat?.prob_any_day_over_35c ?? 0;
-  const hot = heat?.expected_hot_days ?? 0;
-  if (over35 >= 0.2 || hot >= 8) {
-    out.push({ tone: "heat", text: "Real heat exposure — plan shade and water, and put key moments before noon or after 5pm." });
-  } else if (hot >= 2) {
-    out.push({ tone: "heat", text: "Warm spell likely — offer shade and water and watch the midday window." });
-  } else {
-    out.push({ tone: "good", text: "Comfortable heat profile for an outdoor plan." });
-  }
-  return out;
-}
-
 export function Recommendation({
   rain,
   heat,
   monthName,
+  segment = "other",
   onAsk,
 }: {
   rain: RainRisk | null;
   heat: HeatRisk | null;
   monthName: string;
+  segment?: Segment;
   onAsk?: () => void;
 }) {
   if (!rain && !heat) return null;
-  const list = tips(rain, heat);
+  const list = segmentTips(rain, heat, segment);
+  const label = segmentLabel(segment);
 
   return (
     <div className="rounded-[var(--radius-card)] border border-line bg-surface p-5">
       <div className="flex items-center gap-2">
         <ShieldCheck size={18} className="text-brand" />
-        <h3 className="text-sm font-medium text-ink">Plan for {monthName}</h3>
+        <h3 className="text-sm font-medium text-ink">
+          {segment === "other" ? `Plan for ${monthName}` : `${label} plan · ${monthName}`}
+        </h3>
       </div>
       <ul className="mt-4 space-y-2.5">
         {list.map((t, i) => (

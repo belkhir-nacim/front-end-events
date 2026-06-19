@@ -8,15 +8,23 @@ import { AssetsBar } from "@/components/dashboard/assets-bar";
 import { RiskCards } from "@/components/dashboard/risk-cards";
 import { ClimatologyChart, YearByYearChart } from "@/components/dashboard/charts";
 import { Recommendation } from "@/components/dashboard/recommendation";
+import { LowestRiskStrip } from "@/components/dashboard/lowest-risk-strip";
+import { SaveAssessment } from "@/components/dashboard/save-assessment";
+import { BestDatePanel } from "@/components/dashboard/best-date-panel";
+import { FutureExtremesPanel } from "@/components/dashboard/future-extremes-panel";
+import { buildSnapshot, SNAPSHOT_VERSION } from "@/lib/snapshot";
+import { addRecent } from "@/lib/recent";
 import { SubseasonalPanel } from "@/components/dashboard/subseasonal";
 import { ProjectionPanel } from "@/components/dashboard/projection-panel";
 import { EventDateCard } from "@/components/dashboard/event-date-card";
 import { ChatView } from "@/components/chat/chat-view";
 import { useChatStream } from "@/components/chat/use-chat-stream";
 import { MONTHS_LONG, MONTHS_SHORT } from "@/lib/format";
+import { SEGMENTS, type Segment } from "@/lib/segments";
 import {
   CLIMATE_MODELS,
   type Climatology,
+  type DayRisk,
   type HeatRisk,
   type PlaceSelection,
   type PointInfo,
@@ -53,6 +61,7 @@ export function DashboardClient() {
   const [place, setPlace] = useState<PlaceSelection | null>(null);
   const [month, setMonth] = useState(6);
   const [tsMetric, setTsMetric] = useState("rainy_days");
+  const [segment, setSegment] = useState<Segment>("other");
 
   // event date / range
   const [rangeMode, setRangeMode] = useState(false);
@@ -64,6 +73,7 @@ export function DashboardClient() {
   const [rain, setRain] = useState<RainRisk | null>(null);
   const [heat, setHeat] = useState<HeatRisk | null>(null);
   const [series, setSeries] = useState<Timeseries | null>(null);
+  const [dayRisk, setDayRisk] = useState<DayRisk | null>(null);
   const [subseasonal, setSubseasonal] = useState<Subseasonal | null>(null);
   const [loadingSub, setLoadingSub] = useState(false);
   const [projModel, setProjModel] = useState<string>(CLIMATE_MODELS[0]);
@@ -90,6 +100,7 @@ export function DashboardClient() {
       setRain(null);
       setHeat(null);
       setSeries(null);
+      setDayRisk(null);
       setSubseasonal(null);
       setProjection(null);
       setApiState("ok");
@@ -97,6 +108,21 @@ export function DashboardClient() {
     [],
   );
   const onSelectPlace = useCallback((p: PlaceSelection) => applyPlace(p, null), [applyPlace]);
+
+  // Deep-link: /dashboard?lat&lon&month&date&name → re-run a saved assessment, or carry a landing verdict.
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const lat = Number(sp.get("lat"));
+    const lon = Number(sp.get("lon"));
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    const nm = sp.get("name") || `${lat.toFixed(2)}, ${lon.toFixed(2)}`;
+    const date = sp.get("date");
+    const m = Number(sp.get("month"));
+    applyPlace({ lat, lng: lon, address: nm }, null, date || null);
+    if (!date && m >= 1 && m <= 12) setMonth(m);
+    // run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const onPickStart = useCallback((v: string) => {
     setWinStart(v || null);
@@ -180,6 +206,22 @@ export function DashboardClient() {
     };
   }, [place, month, tsMetric, apiState]);
 
+  // single event date → historical day-window odds ("rain on June 15?")
+  useEffect(() => {
+    if (!place || apiState !== "ok" || !winStart || rangeMode) {
+      setDayRisk(null);
+      return;
+    }
+    let active = true;
+    const { lat, lng } = place;
+    jget<DayRisk>(`/api/climate/day-risk?lat=${lat}&lon=${lng}&date=${winStart}`)
+      .then((d) => active && setDayRisk(d))
+      .catch(() => active && setDayRisk(null));
+    return () => {
+      active = false;
+    };
+  }, [place, winStart, rangeMode, apiState]);
+
   // place → 45-day subseasonal outlook (Open-Meteo; global)
   useEffect(() => {
     if (!place) return;
@@ -224,6 +266,12 @@ export function DashboardClient() {
     };
   }, [place, month, projModel]);
 
+  // Write a most-recently-viewed entry so unsaved lookups are recoverable (Cmd-K Recent).
+  useEffect(() => {
+    if (!place) return;
+    addRecent({ lat: place.lat, lon: place.lng, name: place.address, month, date: winStart, segment });
+  }, [place, month, winStart, segment]);
+
   const dialData: DialDatum[] =
     climatology?.months.map((m) => ({
       month: m.month,
@@ -234,6 +282,55 @@ export function DashboardClient() {
   const selTmax = toNum(selClim?.tmax_mean_c);
   const monthName = MONTHS_LONG[month];
   const eventEnd = rangeMode && winEnd ? winEnd : undefined;
+  const bdStart = winStart ?? new Date().toISOString().slice(0, 10);
+  const bdEnd = new Date(Date.now() + 120 * 86_400_000).toISOString().slice(0, 10);
+
+  const saveAssessment = useCallback(
+    async ({ name, segment: seg, eventDate }: { name: string; segment: Segment; eventDate: string | null }) => {
+      if (!place) return null;
+      const start = eventDate ?? winStart;
+      const snapshot = buildSnapshot({
+        location: { name: place.address, lat: place.lat, lon: place.lng },
+        point,
+        month,
+        monthName,
+        segment: seg,
+        event: start ? { start, end: eventEnd ?? null } : null,
+        rain,
+        heat,
+        climatology,
+        series,
+        tsMetric,
+        subseasonal,
+        projection,
+        dayRisk,
+        computedAt: new Date().toISOString(),
+      });
+      try {
+        const res = await fetch("/api/assessments", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            name,
+            address: place.address,
+            lat: place.lat,
+            lon: place.lng,
+            segment: seg,
+            event_date: start,
+            month,
+            snapshot,
+            snapshot_version: SNAPSHOT_VERSION,
+          }),
+        });
+        if (!res.ok) return null;
+        const j = await res.json();
+        return j.assessment?.id ? { id: j.assessment.id as string } : null;
+      } catch {
+        return null;
+      }
+    },
+    [place, point, month, monthName, eventEnd, winStart, rain, heat, climatology, series, tsMetric, subseasonal, projection, dayRisk],
+  );
 
   // Everything the dashboard currently shows, passed to the assistant.
   const chatContext = useMemo(
@@ -242,12 +339,14 @@ export function DashboardClient() {
       lat: place?.lat,
       lon: place?.lng,
       month,
+      segment,
       eventDate: winStart ?? undefined,
       eventEnd,
       snapshot: place
         ? {
             location: { name: place.address, lat: place.lat, lon: place.lng },
             month: monthName,
+            segment,
             event: winStart ? (eventEnd ? { start: winStart, end: eventEnd } : { date: winStart }) : undefined,
             historical_rain: rain
               ? {
@@ -273,7 +372,7 @@ export function DashboardClient() {
           }
         : undefined,
     }),
-    [place, month, monthName, winStart, eventEnd, rain, heat, subseasonal, projection],
+    [place, month, monthName, segment, winStart, eventEnd, rain, heat, subseasonal, projection],
   );
 
   const chat = useChatStream(chatContext);
@@ -387,11 +486,20 @@ export function DashboardClient() {
                     </span>
                   </div>
                 </div>
+                {climatology && (
+                  <LowestRiskStrip climatology={climatology} selected={month} onPick={setMonth} />
+                )}
                 <MapPanel place={place} />
                 {point && (
                   <p className="px-1 font-pixel text-[0.65rem] uppercase leading-relaxed tracking-wide text-subtle">
                     grid cell {point.grid_cell.lat.toFixed(2)}, {point.grid_cell.lon.toFixed(2)} ·{" "}
-                    {point.distance_km} km · {point.years[0]}–{point.years[1]} · area-level
+                    {point.distance_km} km · {point.years[0]}–{point.years[1]} ·{" "}
+                    <span
+                      title="Reads the local climate ZONE (~28 km grid cell), not a single street. Two nearby addresses can return the same odds — that's expected, not a bug."
+                      className="cursor-help underline decoration-dotted underline-offset-2"
+                    >
+                      area-level (~28 km)
+                    </span>
                   </p>
                 )}
               </div>
@@ -399,10 +507,21 @@ export function DashboardClient() {
               {/* Right */}
               <div className="space-y-6">
                 <div>
-                  <p className="eyebrow text-subtle">{monthName} · historical odds</p>
-                  <h1 className="mt-2 font-sans text-2xl font-medium tracking-tight text-ink">
-                    {place.address}
-                  </h1>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="eyebrow text-subtle">{monthName} · historical odds</p>
+                      <h1 className="mt-2 font-sans text-2xl font-medium tracking-tight text-ink">
+                        {place.address}
+                      </h1>
+                    </div>
+                    <SaveAssessment
+                      key={`${place.lat}:${place.lng}:${month}:${winStart ?? ""}:${segment}`}
+                      defaultName={place.address}
+                      defaultSegment={segment}
+                      defaultDate={winStart}
+                      onSave={saveAssessment}
+                    />
+                  </div>
                   <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
                     <span className="inline-flex items-center gap-1.5 text-subtle">
                       <CalendarCheck size={15} /> Event
@@ -447,6 +566,19 @@ export function DashboardClient() {
                         clear
                       </button>
                     )}
+                    <span className="ml-1 text-subtle">for</span>
+                    <select
+                      value={segment}
+                      onChange={(e) => setSegment(e.target.value as Segment)}
+                      aria-label="Event type"
+                      className="rounded-md border border-line-strong bg-surface-2 px-2 py-1 text-ink outline-none focus:border-brand"
+                    >
+                      {SEGMENTS.map((s) => (
+                        <option key={s.value} value={s.value}>
+                          {s.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
@@ -458,6 +590,7 @@ export function DashboardClient() {
                     rain={rain}
                     heat={heat}
                     monthName={monthName}
+                    dayRisk={dayRisk}
                   />
                 )}
 
@@ -473,6 +606,17 @@ export function DashboardClient() {
                   />
                 </div>
 
+                <BestDatePanel
+                  lat={place.lat}
+                  lon={place.lng}
+                  defaultStart={bdStart}
+                  defaultEnd={bdEnd}
+                  onPick={(d) => {
+                    setRangeMode(false);
+                    onPickStart(d);
+                  }}
+                />
+
                 <SubseasonalPanel data={subseasonal} loading={loadingSub} />
 
                 <ProjectionPanel
@@ -483,10 +627,13 @@ export function DashboardClient() {
                   monthName={monthName}
                 />
 
+                <FutureExtremesPanel lat={place.lat} lon={place.lng} />
+
                 <Recommendation
                   rain={rain}
                   heat={heat}
                   monthName={monthName}
+                  segment={segment}
                   onAsk={() => setTab("assistant")}
                 />
               </div>

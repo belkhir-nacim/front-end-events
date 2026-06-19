@@ -9,6 +9,7 @@ export interface AgentContext {
   lat?: number;
   lon?: number;
   month?: number;
+  segment?: string;
   eventDate?: string;
   eventEnd?: string;
   snapshot?: unknown;
@@ -27,17 +28,22 @@ function systemPrompt(ctx: AgentContext): string {
           ctx.eventDate
             ? ` Their event is ${
                 ctx.eventEnd ? `from ${ctx.eventDate} to ${ctx.eventEnd}` : `on ${ctx.eventDate}`
-              } — within ~45 days use subseasonal_outlook/forecast_16day, otherwise use historical odds for the month(s).`
+              } — within ~45 days use subseasonal_outlook/forecast_16day; for a specific date further out use climate_day_risk (a ±7-day historical window); otherwise use the month-level historical odds.`
             : ""
         } Use these coordinates when calling tools unless the user names a different place.`
       : "If the user hasn't picked a place yet, ask for the address or city.";
+
+  const seg =
+    ctx.segment && ctx.segment !== "other"
+      ? ` The event type is "${ctx.segment}" — tailor every mitigation suggestion to that kind of event.`
+      : "";
 
   const snap = ctx.snapshot
     ? `\n\nDATA ALREADY LOADED on the dashboard for this place/month (you MAY cite these numbers directly; still call tools for other places, months, dates, or the 2050 projection):\n${JSON.stringify(ctx.snapshot)}`
     : "";
 
   return `You are Serenia's climate-risk assistant for event planning (outdoor weddings, festivals, film shoots, field ops).
-${here}${snap}
+${here}${seg}${snap}
 
 TOOLS
 - climate_rain_risk / climate_heat_risk / climate_climatology / climate_timeseries → HISTORICAL odds from 80+ years of ERA5 reanalysis (the "typical" risk for a month). Historical coverage is currently France; if a tool returns an "error" about coverage, tell the user plainly.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Attachment } from "@/lib/types";
 
 export interface ChatMsg {
@@ -15,6 +15,7 @@ export interface ChatContext {
   lat?: number;
   lon?: number;
   month?: number;
+  segment?: string;
   eventDate?: string;
   eventEnd?: string;
   snapshot?: unknown;
@@ -30,6 +31,28 @@ export function useChatStream(context: ChatContext) {
   messagesRef.current = messages;
   const ctxRef = useRef(context);
   ctxRef.current = context;
+
+  // Durable thread: one conversation per place, persisted server-side so it survives reloads.
+  const threadKey = useMemo(
+    () => (context.lat != null && context.lon != null ? `pt:${context.lat.toFixed(2)},${context.lon.toFixed(2)}` : null),
+    [context.lat, context.lon],
+  );
+  const threadKeyRef = useRef<string | null>(null);
+  threadKeyRef.current = threadKey;
+
+  useEffect(() => {
+    if (!threadKey) return;
+    let live = true;
+    fetch(`/api/chat/thread?key=${encodeURIComponent(threadKey)}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (live && Array.isArray(j.messages)) setMessages(j.messages as ChatMsg[]);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [threadKey]);
 
   const send = useCallback(async (text: string, attachments: Attachment[] = []) => {
     const trimmed = text.trim();
@@ -71,7 +94,9 @@ export function useChatStream(context: ChatContext) {
         appendToAssistant(
           res.status === 503
             ? "The assistant isn't connected yet — set OPENROUTER_API_KEY."
-            : `Sorry — the assistant failed (${res.status}).`,
+            : res.status === 429
+              ? "You've reached today's free chat limit. It resets tomorrow."
+              : `Sorry — the assistant failed (${res.status}).`,
         );
         return;
       }
@@ -118,6 +143,14 @@ export function useChatStream(context: ChatContext) {
     } finally {
       setStreaming(false);
       setActiveTool(null);
+      const key = threadKeyRef.current;
+      if (key) {
+        void fetch("/api/chat/thread", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ key, messages: messagesRef.current }),
+        }).catch(() => {});
+      }
     }
   }, [streaming]);
 

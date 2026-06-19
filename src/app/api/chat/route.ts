@@ -2,6 +2,8 @@ import type { NextRequest } from "next/server";
 import { createHash } from "node:crypto";
 import { agentConfigured, buildAgent, buildVisionLLM, type AgentContext } from "@/lib/agent/agent";
 import { extractAttachment } from "@/lib/extract";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
+import { FREE_LIMITS, chatUsedToday, recordUsage } from "@/lib/usage";
 import type { Attachment } from "@/lib/types";
 
 export const runtime = "nodejs"; // langchain/langgraph + unpdf/mammoth need Node, not Edge
@@ -76,6 +78,25 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "no messages" }, { status: 400 });
   }
 
+  // Metering: record + lightly cap chat usage for signed-in users (S4 will swap the static
+  // limit for plan entitlements). Anonymous callers aren't metered. Use one request-scoped
+  // client (cookies are read here, not mid-stream).
+  const supabase = isSupabaseConfigured() ? await createClient() : null;
+  let userId: string | null = null;
+  if (supabase) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    userId = user?.id ?? null;
+  }
+  if (supabase && userId && (await chatUsedToday(supabase)) >= FREE_LIMITS.chatPerDay) {
+    return Response.json(
+      { error: "daily chat limit reached", limit: FREE_LIMITS.chatPerDay },
+      { status: 429 },
+    );
+  }
+  const meterModel = process.env.OPENROUTER_MODEL ?? "openai/gpt-4o-mini";
+
   // Extract attachments to text ONCE: docs are parsed, images are transcribed via a vision model.
   // The resulting text block is (a) folded into this turn's message for the agent and (b) streamed
   // back as a `context` event so the client can persist it in the conversation — no re-reading.
@@ -118,6 +139,10 @@ export async function POST(req: NextRequest) {
     async start(controller) {
       const send = (obj: unknown) =>
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+      let outChars = 0;
+      let usageIn = 0;
+      let usageOut = 0;
+      let usageTotal = 0;
       try {
         // Hand the extracted text to the client first so it can persist it in the conversation.
         if (attachmentText) send({ type: "context", text: attachmentText });
@@ -128,12 +153,36 @@ export async function POST(req: NextRequest) {
         for await (const ev of events) {
           if (ev.event === "on_chat_model_stream") {
             const t = textOf((ev.data as { chunk?: { content?: unknown } })?.chunk?.content);
-            if (t) send({ type: "token", text: t });
+            if (t) {
+              outChars += t.length;
+              send({ type: "token", text: t });
+            }
+          } else if (ev.event === "on_chat_model_end") {
+            const um = (
+              ev.data as {
+                output?: { usage_metadata?: { input_tokens?: number; output_tokens?: number; total_tokens?: number } };
+              }
+            )?.output?.usage_metadata;
+            if (um) {
+              usageIn += um.input_tokens ?? 0;
+              usageOut += um.output_tokens ?? 0;
+              usageTotal += um.total_tokens ?? 0;
+            }
           } else if (ev.event === "on_tool_start") {
             send({ type: "tool", name: ev.name, status: "start" });
           } else if (ev.event === "on_tool_end") {
             send({ type: "tool", name: ev.name, status: "end" });
           }
+        }
+        if (supabase && userId) {
+          const completion = usageOut || Math.ceil(outChars / 4); // estimate if provider omits usage
+          await recordUsage(supabase, userId, {
+            kind: "chat",
+            model: meterModel,
+            promptTokens: usageIn || null,
+            completionTokens: completion || null,
+            totalTokens: usageTotal || completion || null,
+          });
         }
         send({ type: "done" });
       } catch (e) {

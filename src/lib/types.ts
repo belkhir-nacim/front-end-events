@@ -83,6 +83,36 @@ export interface Timeseries {
   summary: TimeseriesSummary;
 }
 
+// Historical odds for a specific calendar date (±7-day window) — /api/v1/day-risk.
+export interface DayRisk {
+  location: LocationRef;
+  day_of_year: number;
+  window_days: number;
+  available?: boolean;
+  rain_prob: number | null;
+  prob_heavy_rain_day: number | null;
+  expected_precip_mm: number | null;
+  risk_label_rain: RiskLabel | null;
+  prob_hot_day_over_30c: number | null;
+  prob_any_day_over_35c: number | null;
+  expected_high_c: number | null;
+  risk_label_heat: RiskLabel | null;
+  prob_heat_stress_day: number | null;
+  n_samples: number;
+}
+
+// CMIP6 future climate-extreme indices — /api/v1/extremes (modelled projection).
+export interface ExtremesProjection {
+  location: LocationRef;
+  model: string;
+  note: string;
+  indices: Record<string, { unit: string; label: string }>;
+  baseline_period: string;
+  baseline: Record<string, number | null> | null;
+  scenarios: Record<string, Record<string, Record<string, number | null>>>; // ssp → window → index → value
+  delta_2050s: Record<string, Record<string, number | null>>; // ssp → index → delta
+}
+
 export interface PointInfo {
   requested: { lat: number; lon: number };
   grid_cell: { lat: number; lon: number };

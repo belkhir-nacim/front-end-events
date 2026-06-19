@@ -5,6 +5,8 @@ import "server-only";
 
 import type {
   Climatology,
+  DayRisk,
+  ExtremesProjection,
   ForecastDay,
   HeatRisk,
   PointInfo,
@@ -53,6 +55,9 @@ export const climate = {
     get<Climatology>("climatology", { lat, lon }),
   timeseries: (lat: number, lon: number, month: number, metric: string) =>
     get<Timeseries>("timeseries", { lat, lon, month, metric }),
+  dayRisk: (lat: number, lon: number, date: string) =>
+    get<DayRisk>("day-risk", { lat, lon, date }),
+  extremes: (lat: number, lon: number) => get<ExtremesProjection>("extremes", { lat, lon }),
 };
 
 // --- Open-Meteo (forecast ≤16 days; archive for specific past dates) ---------

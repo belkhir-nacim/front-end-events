@@ -8,6 +8,7 @@ import { tool } from "langchain";
 import { z } from "zod";
 import { climate, openMeteoForecast } from "@/lib/climate";
 import { fetchSubseasonal } from "@/lib/subseasonal";
+import { bestDates } from "@/lib/optimizer";
 
 const latlon = {
   lat: z.number().describe("latitude in decimal degrees"),
@@ -54,11 +55,29 @@ export const climateTools = [
       }),
     },
   ),
+  tool(async ({ lat, lon, date }) => safe(() => climate.dayRisk(lat, lon, date)), {
+    name: "climate_day_risk",
+    description:
+      "HISTORICAL odds for a SPECIFIC calendar date (e.g. 'will it rain on June 15?') — pooled over a ±7-day window across the ERA5 record. date is YYYY-MM-DD. Prefer this over climate_rain_risk/climate_heat_risk when the user asks about a specific date that is too far out for a forecast. France coverage.",
+    schema: z.object({ ...latlon, date: z.string().describe("event date, YYYY-MM-DD") }),
+  }),
+  tool(async ({ lat, lon }) => safe(() => climate.extremes(lat, lon)), {
+    name: "climate_extremes",
+    description:
+      "CMIP6 PROJECTION of future climate EXTREMES at a location — hottest day (TXx), summer days, tropical nights, heavy-rain extremes (Rx1day, R20mm), dry spells (CDD) — baseline (1995-2014) vs the 2050s/2090s under SSP2-4.5 and SSP5-8.5. A MODELLED, coarse, scenario-dependent projection: clearly distinguish it from historical odds and from short-range forecasts. France coverage.",
+    schema: z.object({ ...latlon }),
+  }),
   tool(async ({ lat, lon }) => safe(() => fetchSubseasonal(lat, lon)), {
     name: "subseasonal_outlook",
     description:
       "45-day forward FORECAST (Open-Meteo seasonal) of rain & heat for a location — the near-future outlook, NOT historical odds.",
     schema: z.object({ ...latlon }),
+  }),
+  tool(async ({ lat, lon, start, end }) => safe(() => bestDates(lat, lon, start, end)), {
+    name: "best_date",
+    description:
+      "Find the LOWEST historical-risk dates in a range for an outdoor event. Scans candidate dates (weekly) and ranks by combined rain + heat odds (lower = calmer), using the ±7-day historical window. start/end are YYYY-MM-DD. Returns dates sorted best-first. France coverage. Use when the user asks for the 'best' or 'driest'/'coolest' date/window.",
+    schema: z.object({ ...latlon, start: z.string().describe("range start YYYY-MM-DD"), end: z.string().describe("range end YYYY-MM-DD") }),
   }),
   tool(async ({ lat, lon }) => safe(() => openMeteoForecast(lat, lon)), {
     name: "forecast_16day",

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { Logo } from "@/components/brand";
 import { ClimateDial, type DialDatum } from "@/components/climate-dial";
+import { InstantVerdict } from "@/components/landing/instant-verdict";
 
 const HERO_YEAR: DialDatum[] = [
   { month: 1, heat: 7, rain: 11 }, { month: 2, heat: 8, rain: 9 },
@@ -75,6 +76,13 @@ export default function Home() {
             centerMain="Aug"
             centerSub="26° · 7 rain days"
           />
+        </div>
+      </section>
+
+      {/* Try it — no-login instant verdict */}
+      <section className="border-t border-line bg-surface/40">
+        <div className="mx-auto max-w-3xl px-6 py-16">
+          <InstantVerdict />
         </div>
       </section>
 
